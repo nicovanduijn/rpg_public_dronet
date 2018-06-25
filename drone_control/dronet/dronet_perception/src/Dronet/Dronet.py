@@ -20,7 +20,7 @@ class Dronet(object):
         self.feedthrough_sub = rospy.Subscriber("state_change", Bool, self.callback_feedthrough, queue_size=1)
         self.land_sub = rospy.Subscriber("land", Empty, self.callback_land, queue_size=1)
 
-        self.use_network_out = False
+        self.use_network_out = True
         self.imgs_rootpath = imgs_rootpath
 
         # Set keras utils

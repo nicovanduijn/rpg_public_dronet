@@ -4,37 +4,40 @@
 #include <std_msgs/Bool.h>
 #include <std_msgs/Empty.h>
 #include <geometry_msgs/Twist.h>
+#include <geometry_msgs/TransformStamped.h>
+#include <mavros_msgs/Trajectory.h>
 #include "dronet_perception/CNN_out.h"
+#include <math.h>
 
 namespace deep_navigation
 {
 
-class deepNavigation final
+class deepNavigation
 {
 
 public:
   deepNavigation(const ros::NodeHandle& nh,
                  const ros::NodeHandle& nh_private);
-  deepNavigation() : deepNavigation(ros::NodeHandle(), ros::NodeHandle("~") ) {}
+  deepNavigation() : deepNavigation(ros::NodeHandle(), ros::NodeHandle("~") ) {};
 
   void run();
 
 private:
 
-  // ROS 
+  // ROS
   ros::NodeHandle nh_;
   ros::NodeHandle nh_private_;
   ros::Subscriber deep_network_sub_;
-  ros::Subscriber state_change_sub_;
-  ros::Publisher desired_velocity_pub_;
+  ros::Subscriber desired_trajectory_sub_;
+  ros::Publisher generated_trajectory_pub_;
 
   // Callback for networks outputs
   void deepNetworkCallback(const dronet_perception::CNN_out::ConstPtr& msg);
-  void stateChangeCallback(const std_msgs::Bool& msg);
+  void desiredTrajectoryCallback(const mavros_msgs::Trajectory& traj);
   double probability_of_collision_;
   double steering_angle_;
-  bool use_network_out_;  // If True, it will use the network out, else will use zero
 
+  void fillUnusedTrajectoryPoint(mavros_msgs::PositionTarget &point);
 
   // Parameters
   void loadParameters();
@@ -47,7 +50,8 @@ private:
 
   double desired_forward_velocity_;
   double desired_angular_velocity_;
-  geometry_msgs::Twist cmd_velocity_;
+  mavros_msgs::Trajectory desired_trajectory_;
+  mavros_msgs::Trajectory generated_trajectory_;
 
 };
 
@@ -64,7 +68,7 @@ public:
 
 private:
 
-  // ROS 
+  // ROS
   ros::NodeHandle nh_;
   ros::NodeHandle nh_private_;
 

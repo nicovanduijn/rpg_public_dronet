@@ -14,9 +14,9 @@ deepNavigation::deepNavigation(
   ROS_INFO("[%s]: Initializing Deep Control Node", name_.c_str());
   loadParameters();
   deep_network_sub_ = nh_.subscribe("cnn_predictions", 1, &deepNavigation::deepNetworkCallback, this);
-  state_change_sub_ = nh_.subscribe("state_change", 1, &deepNavigation::stateChangeCallback, this);
-
-  desired_velocity_pub_ = nh_.advertise < geometry_msgs::Twist > ("velocity", 1);
+  desired_trajectory_sub_ = nh_.subscribe("/mavros/trajectory/desired", 1, &deepNavigation::desiredTrajectoryCallback, this);
+  generated_trajectory_pub_ = nh_.advertise<mavros_msgs::Trajectory>(
+      "/mavros/trajectory/generated", 10);
 
   steering_angle_ = 0.0;
   probability_of_collision_ = 0.0;
@@ -24,9 +24,6 @@ deepNavigation::deepNavigation(
   // Aggressive initialization
   desired_forward_velocity_ = max_forward_index_;
   desired_angular_velocity_ = 0.0;
-
-  use_network_out_ = false;
-
 }
 
 
@@ -34,7 +31,6 @@ void deepNavigation::run()
 {
 
   ros::Duration(2.0).sleep();
-
   ros::Rate rate(30.0);
 
   while (ros::ok())
@@ -52,8 +48,6 @@ void deepNavigation::run()
     desired_forward_velocity_ = (1.0 - alpha_velocity_) * desired_forward_velocity_
         + alpha_velocity_ * desired_forward_velocity_m;
 
-    ROS_INFO("Desired_Forward_Velocity [0-1]: %.3f ", desired_forward_velocity_);
-    
     // Stop if velocity is prob of collision is too high
     if (desired_forward_velocity_ < ((1 - critical_prob_coll_) * max_forward_index_))
     {
@@ -61,25 +55,73 @@ void deepNavigation::run()
     }
 
 
-    // Low pass filter the angular_velocity (Remeber to tune the bebop angular velocity parameters)
+    // Low pass filter the angular_velocity (Remember to tune the bebop angular velocity parameters)
     desired_angular_velocity_ = (1.0 - alpha_yaw_) * desired_angular_velocity_ + alpha_yaw_ * steering_angle_;
 
-    ROS_INFO("Desired_Angular_Velocity[0-1]: %.3f ", desired_angular_velocity_);
+    // Compute direction to goal
+    double x_dir = (desired_trajectory_.point_2.position.x - desired_trajectory_.point_1.position.x);
+    double y_dir = (desired_trajectory_.point_2.position.y - desired_trajectory_.point_1.position.y);
+    double z_dir = (desired_trajectory_.point_2.position.z - desired_trajectory_.point_1.position.z);
+    double mag = sqrt(x_dir*x_dir+y_dir*y_dir + z_dir*z_dir);
+    if(mag >1){// only make unit if far away from goal
+          x_dir /= mag;
+    y_dir /= mag;
+    z_dir /= mag;
+    }
 
-    // Prepare command velocity
-    cmd_velocity_.linear.x = desired_forward_velocity_;
-    cmd_velocity_.angular.z = desired_angular_velocity_;
+    // If probability of collision is less than 0.1
+    if(desired_forward_velocity_ > ((1 - 0.1) * max_forward_index_)){
+        generated_trajectory_.type = 0;  // MAV_TRAJECTORY_REPRESENTATION::WAYPOINTS
+        generated_trajectory_.point_1.position.x = NAN;
+        generated_trajectory_.point_1.position.y = NAN;
+        generated_trajectory_.point_1.position.z = NAN;
+        generated_trajectory_.point_1.velocity.x = x_dir;
+        generated_trajectory_.point_1.velocity.y = y_dir;
+        generated_trajectory_.point_1.velocity.z = z_dir;
+        generated_trajectory_.point_1.acceleration_or_force.x = NAN;
+        generated_trajectory_.point_1.acceleration_or_force.y = NAN;
+        generated_trajectory_.point_1.acceleration_or_force.z = NAN;
+        generated_trajectory_.point_1.yaw =atan2(y_dir,x_dir); 
+        generated_trajectory_.point_1.yaw_rate = NAN;
+
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_2);
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_3);
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_4);
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_5);
+
+        generated_trajectory_.time_horizon = {NAN, NAN, NAN, NAN, NAN};
+        generated_trajectory_.point_valid = {true, false, false, false, false};
+      }
+
+    // Use Dronet's output if the probability of collision is high  
+    else{
+        generated_trajectory_.type = 0;
+        generated_trajectory_.point_1.position.x =NAN;
+        generated_trajectory_.point_1.position.y =  NAN;
+        generated_trajectory_.point_1.position.z = NAN;
+        generated_trajectory_.point_1.velocity.x = cos(desired_trajectory_.point_1.yaw)*desired_forward_velocity_;
+        generated_trajectory_.point_1.velocity.y = sin(desired_trajectory_.point_1.yaw)*desired_forward_velocity_;
+        generated_trajectory_.point_1.velocity.z = (desired_trajectory_.point_2.position.z - desired_trajectory_.point_1.position.z);
+        generated_trajectory_.point_1.acceleration_or_force.x = NAN;
+        generated_trajectory_.point_1.acceleration_or_force.y = NAN;
+        generated_trajectory_.point_1.acceleration_or_force.z = NAN;
+        generated_trajectory_.point_1.yaw = NAN;
+        generated_trajectory_.point_1.yaw_rate = -desired_angular_velocity_*5;
+
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_2);
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_3);
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_4);
+        fillUnusedTrajectoryPoint(generated_trajectory_.point_5);
+
+        generated_trajectory_.time_horizon = {NAN, NAN, NAN, NAN, NAN};
+        generated_trajectory_.point_valid = {true, false, false, false, false};
+      }
+       
+ROS_INFO("desired_forward_velocity_: %.3f , vx: %.3f, vy: %.3f, vz: %.3f, vyaw: %.3f", desired_forward_velocity_, generated_trajectory_.point_1.velocity.x,
+         generated_trajectory_.point_1.velocity.y, generated_trajectory_.point_1.velocity.z, generated_trajectory_.point_1.yaw_rate);
 
     // Publish desired state
-    if (use_network_out_)
-    {
-        desired_velocity_pub_.publish(cmd_velocity_);
-    }
-    else
-        ROS_INFO("NOT PUBLISHING VELOCITY");
-
-    ROS_INFO("Collision Prob.: %.3f - OutSteer: %.3f", probability_of_collision_, steering_angle_);
-    ROS_INFO("--------------------------------------------------");
+        generated_trajectory_pub_.publish(generated_trajectory_);
 
     rate.sleep();
 
@@ -101,11 +143,6 @@ void deepNavigation::deepNetworkCallback(const dronet_perception::CNN_out::Const
 
 }
 
-void deepNavigation::stateChangeCallback(const std_msgs::Bool& msg)
-{
-    //change current state
-    use_network_out_ = msg.data;
-}
 
 void deepNavigation::loadParameters()
 {
@@ -118,6 +155,26 @@ void deepNavigation::loadParameters()
 
 }
 
+void deepNavigation::desiredTrajectoryCallback(const mavros_msgs::Trajectory& traj){
+      desired_trajectory_ = traj;
+  }
+
+void deepNavigation::fillUnusedTrajectoryPoint(
+      mavros_msgs::PositionTarget &point) {
+    point.position.x = NAN;
+    point.position.y = NAN;
+    point.position.z = NAN;
+    point.velocity.x = NAN;
+    point.velocity.y = NAN;
+    point.velocity.z = NAN;
+    point.acceleration_or_force.x = NAN;
+    point.acceleration_or_force.y = NAN;
+    point.acceleration_or_force.z = NAN;
+    point.yaw = NAN;
+    point.yaw_rate = NAN;
+  }
+
+
 } // namespace deep_navigation
 
 int main(int argc, char** argv)
@@ -129,3 +186,4 @@ int main(int argc, char** argv)
 
   return 0;
 }
+

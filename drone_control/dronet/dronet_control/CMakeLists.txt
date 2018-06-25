@@ -6,7 +6,7 @@ catkin_simple()
 
 
 cs_add_executable(dronet_control src/deep_navigation.cpp)
-
+add_compile_options(-std=c++11)
 cs_export()
 
 
