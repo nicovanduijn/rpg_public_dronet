@@ -13,6 +13,7 @@
 	<depend>quad_cmake</depend>
 	<depend>roscpp</depend>
 	<depend>eigen_catkin</depend>
+	<depend>pcl_ros</depend>
 	
 	<depend>geometry_msgs</depend>
 	<depend>mavros_msgs</depend>

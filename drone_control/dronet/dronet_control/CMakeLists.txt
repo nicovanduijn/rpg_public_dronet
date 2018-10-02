@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(dronet_control)
 
-find_package(catkin_simple REQUIRED)
+find_package(catkin_simple REQUIRED COMPONENTS pcl_ros)
 catkin_simple()
 
 

@@ -5,9 +5,11 @@
 #include <std_msgs/Empty.h>
 #include <geometry_msgs/Twist.h>
 #include <geometry_msgs/TransformStamped.h>
+#include <geometry_msgs/PoseStamped.h>
 #include <mavros_msgs/Trajectory.h>
 #include "dronet_perception/CNN_out.h"
 #include <math.h>
+#include <pcl_ros/transforms.h>
 
 namespace deep_navigation
 {
@@ -29,11 +31,13 @@ private:
   ros::NodeHandle nh_private_;
   ros::Subscriber deep_network_sub_;
   ros::Subscriber desired_trajectory_sub_;
+  ros::Subscriber local_position_sub_;
   ros::Publisher generated_trajectory_pub_;
 
   // Callback for networks outputs
   void deepNetworkCallback(const dronet_perception::CNN_out::ConstPtr& msg);
   void desiredTrajectoryCallback(const mavros_msgs::Trajectory& traj);
+  void localPositionCallback(const geometry_msgs::PoseStamped& msg);
   double probability_of_collision_;
   double steering_angle_;
 
@@ -50,8 +54,10 @@ private:
 
   double desired_forward_velocity_;
   double desired_angular_velocity_;
+  double current_yaw_;
   mavros_msgs::Trajectory desired_trajectory_;
   mavros_msgs::Trajectory generated_trajectory_;
+  geometry_msgs::PoseStamped local_position_;
 
 };
 
